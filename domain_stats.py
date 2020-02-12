@@ -42,11 +42,11 @@ class domain_api(BaseHTTPServer.BaseHTTPRequestHandler):
         if self.server.args.verbose: self.server.safe_print(self.path)
         (ignore, ignore, urlpath, urlparams, ignore) = urlparse.urlsplit(self.path)
         cmdstr = tgtstr = None
-        if re.search("[\/](?:created|alexa|domain)[\/].*?", urlpath):
-            cmdstr = re.search(r"[\/](created|alexa|domain)[\/].*$", urlpath)
-            tgtstr = re.search(r"[\/](created|alexa|domain)[\/](.*)$", urlpath)
+        if re.search("[\/](?:created|alexa|cisco|domain)[\/].*?", urlpath):
+            cmdstr = re.search(r"[\/](created|alexa|cisco|domain)[\/].*$", urlpath)
+            tgtstr = re.search(r"[\/](created|alexa|cisco|domain)[\/](.*)$", urlpath)
             if not cmdstr or not tgtstr:
-                api_hlp = 'API Documentation\nhttp://%s:%s/cmd/tgt cmd = domain or alexa tgt = domain name' % (self.server.server_address[0], self.server.server_address[1])
+                api_hlp = 'API Documentation\nhttp://%s:%s/cmd/tgt cmd = one of [domain,alexa,cisco,created] tgt = domain name' % (self.server.server_address[0], self.server.server_address[1])
                 self.wfile.write(api_hlp.encode("latin-1"))
                 return
             params = {}
@@ -56,7 +56,7 @@ class domain_api(BaseHTTPServer.BaseHTTPRequestHandler):
             cmdstr=re.search("cmd=(?:domain|alexa|created)",urlparams)
             tgtstr =  re.search("tgt=",urlparams)
             if not cmdstr or not tgtstr:
-                api_hlp = 'API Documentation\nhttp://%s:%s/cmd/tgt cmd = domain or alexa tgt = domain name' % (self.server.server_address[0], self.server.server_address[1])
+                api_hlp = 'API Documentation\nhttp://%s:%s/cmd/tgt cmd = one of [domain,alexa,cisco,created]  tgt = domain name' % (self.server.server_address[0], self.server.server_address[1])
                 self.wfile.write(api_hlp.encode("latin-1"))
                 return
             params={}
@@ -71,10 +71,18 @@ class domain_api(BaseHTTPServer.BaseHTTPRequestHandler):
             if self.server.args.verbose: self.server.safe_print ("Alexa Query:", params["tgt"])
             if not self.server.alexa:
                 if self.server.args.verbose: self.server.safe_print ("No Alexa data loaded. Restart program.")
-                self.wfile.write("Alexa not loaded on server. Restart server with -a or --alexa and file path.".encode("latin-1"))
+                self.wfile.write("Alexa not loaded on server. Restart server with --alexa and file path.".encode("latin-1"))
             else:
-                if self.server.args.verbose: self.server.safe_print ("Alexa queried for:%s" % (params['tgt']))              
+                if self.server.args.verbose: self.server.safe_print ("Alexa queried for:%s" % (params['tgt']))
                 self.wfile.write(str(self.server.alexa.get(params["tgt"],"0")).encode("latin-1"))
+        elif params["cmd"] == "cisco":
+            if self.server.args.verbose: self.server.safe_print ("Cisco Query:", params["tgt"])
+            if not self.server.cisco:
+                if self.server.args.verbose: self.server.safe_print ("No Cisco Umbrella data loaded. Restart program.")
+                self.wfile.write("Cisco Umbrella not loaded on server. Restart server with --cisco and file path.".encode("latin-1"))
+            else:
+                if self.server.args.verbose: self.server.safe_print ("Cisco Umbrella queried for:%s" % (params['tgt']))
+                self.wfile.write(str(self.server.cisco.get(params["tgt"],"0")).encode("latin-1"))
         elif params["cmd"] == "domain":
             fields=[]
             if "/" in params['tgt']:
@@ -210,7 +218,8 @@ def main():
     parser.add_argument('-d','--disable-disk-preload',action="store_true",required=False,help='Rely completely on online whois.  Do not use offline (and possibly outdated) .dst file.')
     parser.add_argument('port',type=int,help='You must provide a TCP Port to bind to')
     parser.add_argument('-v','--verbose',action='count',required=False,help='Print verbose output to the server screen.  -vv is more verbose.')
-    parser.add_argument('-a','--alexa',required=False,help='Provide a local file path to an Alexa top-1m.csv')
+    parser.add_argument('--alexa',required=False,help='Provide a local file path to an Alexa top-1m.csv')
+    parser.add_argument('--cisco',required=False,help='Provide a local file path to a Cisco Umbrella top-1m.csv')
     parser.add_argument('--all',action="store_true",required=False,help='Return all of the values in a field if multiples exist. By default it only returns the last value.')
     parser.add_argument('--preload',type=int,default=100,help='preload cache with this number of the top Alexa domain entries. set to 0 to disable.  Default 100')
     parser.add_argument('--delay',type=float,default=0.1,help='Delay between whois lookups while staging the initial cache.  Default is 0.1')
@@ -249,6 +258,22 @@ def main():
                 server.safe_print("Unable to parse alexa file:%s" % (str(e)))
             finally:
                 del alexa_file
+    if args.cisco:
+        if not os.path.exists(args.cisco):
+            print("Cisco Umbrella file not found %s" % (args.alexa))
+        else:
+            server.cisco = {}
+            try:
+                server.safe_print("Preloading %s cisco cache" % (args.preload))
+                cisco_file = open(args.cisco).readlines()
+                server.cisco = dict([(a,b) for b,a in re.findall(r"^(\d+),(\S+)", "".join(cisco_file), re.MULTILINE)])
+                if args.preload:
+                    th = threading.Thread(target=preload_domains, args = (cisco_file[:args.preload], server, args.delay))
+                    th.start()
+            except Exception as e:
+                server.safe_print("Unable to parse cisco file:%s" % (str(e)))
+            finally:
+                del cisco_file
 
     server.args = args
 
