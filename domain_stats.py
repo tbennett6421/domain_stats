@@ -158,6 +158,7 @@ class ThreadedDomainStats(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer
         self.args = ""
         self.screen_lock = threading.Lock()
         self.alexa = ""
+        self.cisco = ""
         self.exitthread = threading.Event()
         self.exitthread.clear()
         BaseHTTPServer.HTTPServer.__init__(self, *args, **kwargs)
