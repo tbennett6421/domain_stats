@@ -14,10 +14,7 @@ else:
     import socketserver as SocketServer
     import urllib.parse as urlparse
 
-#import BaseHTTPServer
 import threading
-#import SocketServer
-#import urlparse
 import re
 import argparse
 import sys
@@ -215,17 +212,16 @@ def preload_domains(domain_list, server, delay=0.1):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('-ip','--address',required=False,help='IP Address for the server to listen on.  Default is 127.0.0.1',default='127.0.0.1')
+    parser.add_argument('-p','--port',type=int,help='You must provide a TCP Port to bind to')
     parser.add_argument('-c','--cache-time',type=float,required=False,help='Number of seconds to hold a whois record in the cache. Default is 604800 (7 days). Set to 0 to save forever.',default=604800)
     parser.add_argument('-d','--disable-disk-preload',action="store_true",required=False,help='Rely completely on online whois.  Do not use offline (and possibly outdated) .dst file.')
-    parser.add_argument('port',type=int,help='You must provide a TCP Port to bind to')
-    parser.add_argument('-v','--verbose',action='count',required=False,help='Print verbose output to the server screen.  -vv is more verbose.')
+    parser.add_argument('-v','--verbose',action='count',required=False,help='Print verbose output to the server screen. -vv is more verbose.')
     parser.add_argument('--alexa',required=False,help='Provide a local file path to an Alexa top-1m.csv')
     parser.add_argument('--cisco',required=False,help='Provide a local file path to a Cisco Umbrella top-1m.csv')
     parser.add_argument('--all',action="store_true",required=False,help='Return all of the values in a field if multiples exist. By default it only returns the last value.')
     parser.add_argument('--preload',type=int,default=100,help='preload cache with this number of the top Alexa domain entries. set to 0 to disable.  Default 100')
     parser.add_argument('--delay',type=float,default=0.1,help='Delay between whois lookups while staging the initial cache.  Default is 0.1')
     parser.add_argument('--garbage-cycle',type=int,default=86400,help='Delete entries in cache older than --cache-time at this iterval (seconds).  Default is 86400 (once per day)')
-
     args = parser.parse_args()
 
     #Setup the server.
