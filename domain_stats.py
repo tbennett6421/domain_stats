@@ -14,10 +14,7 @@ else:
     import socketserver as SocketServer
     import urllib.parse as urlparse
 
-#import BaseHTTPServer
 import threading
-#import SocketServer
-#import urlparse
 import re
 import argparse
 import sys
@@ -42,11 +39,11 @@ class domain_api(BaseHTTPServer.BaseHTTPRequestHandler):
         if self.server.args.verbose: self.server.safe_print(self.path)
         (ignore, ignore, urlpath, urlparams, ignore) = urlparse.urlsplit(self.path)
         cmdstr = tgtstr = None
-        if re.search("[\/](?:created|alexa|domain)[\/].*?", urlpath):
-            cmdstr = re.search(r"[\/](created|alexa|domain)[\/].*$", urlpath)
-            tgtstr = re.search(r"[\/](created|alexa|domain)[\/](.*)$", urlpath)
+        if re.search("[\/](?:created|alexa|cisco|domain)[\/].*?", urlpath):
+            cmdstr = re.search(r"[\/](created|alexa|cisco|domain)[\/].*$", urlpath)
+            tgtstr = re.search(r"[\/](created|alexa|cisco|domain)[\/](.*)$", urlpath)
             if not cmdstr or not tgtstr:
-                api_hlp = 'API Documentation\nhttp://%s:%s/cmd/tgt cmd = domain or alexa tgt = domain name' % (self.server.server_address[0], self.server.server_address[1])
+                api_hlp = 'API Documentation\nhttp://%s:%s/cmd/tgt cmd = one of [domain,alexa,cisco,created] tgt = domain name' % (self.server.server_address[0], self.server.server_address[1])
                 self.wfile.write(api_hlp.encode("latin-1"))
                 return
             params = {}
@@ -56,7 +53,7 @@ class domain_api(BaseHTTPServer.BaseHTTPRequestHandler):
             cmdstr=re.search("cmd=(?:domain|alexa|created)",urlparams)
             tgtstr =  re.search("tgt=",urlparams)
             if not cmdstr or not tgtstr:
-                api_hlp = 'API Documentation\nhttp://%s:%s/cmd/tgt cmd = domain or alexa tgt = domain name' % (self.server.server_address[0], self.server.server_address[1])
+                api_hlp = 'API Documentation\nhttp://%s:%s/cmd/tgt cmd = one of [domain,alexa,cisco,created]  tgt = domain name' % (self.server.server_address[0], self.server.server_address[1])
                 self.wfile.write(api_hlp.encode("latin-1"))
                 return
             params={}
@@ -71,10 +68,18 @@ class domain_api(BaseHTTPServer.BaseHTTPRequestHandler):
             if self.server.args.verbose: self.server.safe_print ("Alexa Query:", params["tgt"])
             if not self.server.alexa:
                 if self.server.args.verbose: self.server.safe_print ("No Alexa data loaded. Restart program.")
-                self.wfile.write("Alexa not loaded on server. Restart server with -a or --alexa and file path.".encode("latin-1"))
+                self.wfile.write("Alexa not loaded on server. Restart server with --alexa and file path.".encode("latin-1"))
             else:
-                if self.server.args.verbose: self.server.safe_print ("Alexa queried for:%s" % (params['tgt']))              
+                if self.server.args.verbose: self.server.safe_print ("Alexa queried for:%s" % (params['tgt']))
                 self.wfile.write(str(self.server.alexa.get(params["tgt"],"0")).encode("latin-1"))
+        elif params["cmd"] == "cisco":
+            if self.server.args.verbose: self.server.safe_print ("Cisco Query:", params["tgt"])
+            if not self.server.cisco:
+                if self.server.args.verbose: self.server.safe_print ("No Cisco Umbrella data loaded. Restart program.")
+                self.wfile.write("Cisco Umbrella not loaded on server. Restart server with --cisco and file path.".encode("latin-1"))
+            else:
+                if self.server.args.verbose: self.server.safe_print ("Cisco Umbrella queried for:%s" % (params['tgt']))
+                self.wfile.write(str(self.server.cisco.get(params["tgt"],"0")).encode("latin-1"))
         elif params["cmd"] == "domain":
             fields=[]
             if "/" in params['tgt']:
@@ -150,6 +155,7 @@ class ThreadedDomainStats(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer
         self.args = ""
         self.screen_lock = threading.Lock()
         self.alexa = ""
+        self.cisco = ""
         self.exitthread = threading.Event()
         self.exitthread.clear()
         BaseHTTPServer.HTTPServer.__init__(self, *args, **kwargs)
@@ -178,10 +184,10 @@ class ThreadedDomainStats(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer
             self.timer.start()
 
 def preload_domains(domain_list, server, delay=0.1):
-    server.safe_print("Now preloading %d domains from alexa in the whois cache." %(len(domain_list)))
+    server.safe_print("Now preloading %d domains in the whois cache." %(len(domain_list)))
     dcount = 0
     dtenth = len(domain_list)/10.0
-    for eachalexa,eachdomain in re.findall(r"^(\d+),(\S+)", "".join(domain_list), re.MULTILINE):
+    for _,eachdomain in re.findall(r"^(\d+),(\S+)", "".join(domain_list), re.MULTILINE):
         time.sleep(delay)
         dcount += 1
         if (dcount % dtenth) == 0:
@@ -192,10 +198,9 @@ def preload_domains(domain_list, server, delay=0.1):
                 server.safe_print("No whois record for %s" % (eachdomain))
                 continue
         except Exception as e:
-            server.safe_print("Error querying whois server: %s" % (str(e)))     
+            server.safe_print("Error querying whois server: %s" % (str(e)))
             continue
         domain_info["time"] = time.time()
-        domain_info['alexa'] = eachalexa
         try:
             server.cache_lock.acquire()
             server.cache[eachdomain] = domain_info
@@ -206,22 +211,22 @@ def preload_domains(domain_list, server, delay=0.1):
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('-ip','--address',required=False,help='IP Address for the server to listen on.  Default is 127.0.0.1',default='127.0.0.1')
+    parser.add_argument('-p','--port',type=int,help='You must provide a TCP Port to bind to')
     parser.add_argument('-c','--cache-time',type=float,required=False,help='Number of seconds to hold a whois record in the cache. Default is 604800 (7 days). Set to 0 to save forever.',default=604800)
     parser.add_argument('-d','--disable-disk-preload',action="store_true",required=False,help='Rely completely on online whois.  Do not use offline (and possibly outdated) .dst file.')
-    parser.add_argument('port',type=int,help='You must provide a TCP Port to bind to')
-    parser.add_argument('-v','--verbose',action='count',required=False,help='Print verbose output to the server screen.  -vv is more verbose.')
-    parser.add_argument('-a','--alexa',required=False,help='Provide a local file path to an Alexa top-1m.csv')
+    parser.add_argument('-v','--verbose',action='count',required=False,help='Print verbose output to the server screen. -vv is more verbose.')
+    parser.add_argument('--alexa',required=False,help='Provide a local file path to an Alexa top-1m.csv')
+    parser.add_argument('--cisco',required=False,help='Provide a local file path to a Cisco Umbrella top-1m.csv')
     parser.add_argument('--all',action="store_true",required=False,help='Return all of the values in a field if multiples exist. By default it only returns the last value.')
     parser.add_argument('--preload',type=int,default=100,help='preload cache with this number of the top Alexa domain entries. set to 0 to disable.  Default 100')
     parser.add_argument('--delay',type=float,default=0.1,help='Delay between whois lookups while staging the initial cache.  Default is 0.1')
     parser.add_argument('--garbage-cycle',type=int,default=86400,help='Delete entries in cache older than --cache-time at this iterval (seconds).  Default is 86400 (once per day)')
-
     args = parser.parse_args()
 
     #Setup the server.
     server = ThreadedDomainStats((args.address, args.port), domain_api)
 
-    if not args.alexa and not args.disable_disk_preload:
+    if not args.disable_disk_preload:
         server.safe_print('Preloading domains from disk cache.')
         try:
             fh = open("domain_cache.dst","rb")
@@ -233,22 +238,51 @@ def main():
         except Exception as e:
             raise(Exception("An error occured loading the disk cache {0}".format(str(e)))) 
 
+    # Store entries for preload
+    preload = {
+        "alexa": None,
+        "cisco": None
+    }
+
+    # Load the alexa file up
     if args.alexa:
         if not os.path.exists(args.alexa):
             print("Alexa file not found %s" % (args.alexa))
         else:
             server.alexa = {}
             try:
-                server.safe_print("Preloading %s alexa cache" % (args.preload))
                 alexa_file = open(args.alexa).readlines()
-                server.alexa = dict([(a,b) for b,a in re.findall(r"^(\d+),(\S+)", "".join(alexa_file), re.MULTILINE)])
                 if args.preload:
-                    th = threading.Thread(target=preload_domains, args = (alexa_file[:args.preload], server, args.delay))
-                    th.start()
+                    preload['alexa'] = alexa_file[:args.preload]
+                server.alexa = dict([(a,b) for b,a in re.findall(r"^(\d+),(\S+)", "".join(alexa_file), re.MULTILINE)])
             except Exception as e:
                 server.safe_print("Unable to parse alexa file:%s" % (str(e)))
             finally:
                 del alexa_file
+
+    # Load the cisco file up
+    if args.cisco:
+        if not os.path.exists(args.cisco):
+            print("Cisco Umbrella file not found %s" % (args.cisco))
+        else:
+            server.cisco = {}
+            try:
+                cisco_file = open(args.cisco).readlines()
+                if args.preload:
+                    preload['cisco'] = cisco_file[:args.preload]
+                server.cisco = dict([(a,b) for b,a in re.findall(r"^(\d+),(\S+)", "".join(cisco_file), re.MULTILINE)])
+            except Exception as e:
+                server.safe_print("Unable to parse cisco file:%s" % (str(e)))
+            finally:
+                del cisco_file
+
+    preload_targets = sorted(list(set(preload['alexa']) | set(preload['cisco'])))
+    del preload
+    server.safe_print("Preloading %s entries into cache" % (len(preload_targets)))
+    if args.preload:
+        th = threading.Thread(target=preload_domains, args = (preload_targets, server, args.delay))
+        th.start()
+    del preload_targets
 
     server.args = args
 
