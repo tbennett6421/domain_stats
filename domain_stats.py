@@ -184,10 +184,10 @@ class ThreadedDomainStats(SocketServer.ThreadingMixIn, BaseHTTPServer.HTTPServer
             self.timer.start()
 
 def preload_domains(domain_list, server, delay=0.1):
-    server.safe_print("Now preloading %d domains from alexa in the whois cache." %(len(domain_list)))
+    server.safe_print("Now preloading %d domains in the whois cache." %(len(domain_list)))
     dcount = 0
     dtenth = len(domain_list)/10.0
-    for eachalexa,eachdomain in re.findall(r"^(\d+),(\S+)", "".join(domain_list), re.MULTILINE):
+    for _,eachdomain in re.findall(r"^(\d+),(\S+)", "".join(domain_list), re.MULTILINE):
         time.sleep(delay)
         dcount += 1
         if (dcount % dtenth) == 0:
@@ -198,10 +198,9 @@ def preload_domains(domain_list, server, delay=0.1):
                 server.safe_print("No whois record for %s" % (eachdomain))
                 continue
         except Exception as e:
-            server.safe_print("Error querying whois server: %s" % (str(e)))     
+            server.safe_print("Error querying whois server: %s" % (str(e)))
             continue
         domain_info["time"] = time.time()
-        domain_info['alexa'] = eachalexa
         try:
             server.cache_lock.acquire()
             server.cache[eachdomain] = domain_info
@@ -227,7 +226,7 @@ def main():
     #Setup the server.
     server = ThreadedDomainStats((args.address, args.port), domain_api)
 
-    if not args.alexa and not args.disable_disk_preload:
+    if not args.disable_disk_preload:
         server.safe_print('Preloading domains from disk cache.')
         try:
             fh = open("domain_cache.dst","rb")
@@ -239,38 +238,51 @@ def main():
         except Exception as e:
             raise(Exception("An error occured loading the disk cache {0}".format(str(e)))) 
 
+    # Store entries for preload
+    preload = {
+        "alexa": None,
+        "cisco": None
+    }
+
+    # Load the alexa file up
     if args.alexa:
         if not os.path.exists(args.alexa):
             print("Alexa file not found %s" % (args.alexa))
         else:
             server.alexa = {}
             try:
-                server.safe_print("Preloading %s alexa cache" % (args.preload))
                 alexa_file = open(args.alexa).readlines()
-                server.alexa = dict([(a,b) for b,a in re.findall(r"^(\d+),(\S+)", "".join(alexa_file), re.MULTILINE)])
                 if args.preload:
-                    th = threading.Thread(target=preload_domains, args = (alexa_file[:args.preload], server, args.delay))
-                    th.start()
+                    preload['alexa'] = alexa_file[:args.preload]
+                server.alexa = dict([(a,b) for b,a in re.findall(r"^(\d+),(\S+)", "".join(alexa_file), re.MULTILINE)])
             except Exception as e:
                 server.safe_print("Unable to parse alexa file:%s" % (str(e)))
             finally:
                 del alexa_file
+
+    # Load the cisco file up
     if args.cisco:
         if not os.path.exists(args.cisco):
-            print("Cisco Umbrella file not found %s" % (args.alexa))
+            print("Cisco Umbrella file not found %s" % (args.cisco))
         else:
             server.cisco = {}
             try:
-                server.safe_print("Preloading %s cisco cache" % (args.preload))
                 cisco_file = open(args.cisco).readlines()
-                server.cisco = dict([(a,b) for b,a in re.findall(r"^(\d+),(\S+)", "".join(cisco_file), re.MULTILINE)])
                 if args.preload:
-                    th = threading.Thread(target=preload_domains, args = (cisco_file[:args.preload], server, args.delay))
-                    th.start()
+                    preload['cisco'] = cisco_file[:args.preload]
+                server.cisco = dict([(a,b) for b,a in re.findall(r"^(\d+),(\S+)", "".join(cisco_file), re.MULTILINE)])
             except Exception as e:
                 server.safe_print("Unable to parse cisco file:%s" % (str(e)))
             finally:
                 del cisco_file
+
+    preload_targets = sorted(list(set(preload['alexa']) | set(preload['cisco'])))
+    del preload
+    server.safe_print("Preloading %s entries into cache" % (len(preload_targets)))
+    if args.preload:
+        th = threading.Thread(target=preload_domains, args = (preload_targets, server, args.delay))
+        th.start()
+    del preload_targets
 
     server.args = args
 
